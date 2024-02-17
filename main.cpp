@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <map>
 
 int setup_multicast_socket (const char *group_ip) {
 
@@ -34,7 +35,7 @@ int setup_multicast_socket (const char *group_ip) {
     return sock;
 }
 
-void multicast_thread (const char *group_ip, unsigned short group_port) {
+void transmit_thread (const char *group_ip, unsigned short group_port) {
 
     int sock = setup_multicast_socket (group_ip);
     std::string message = "Hello Multicast Group";
@@ -50,11 +51,35 @@ void multicast_thread (const char *group_ip, unsigned short group_port) {
             0) {
             perror ("Sending datagram message error");
         }
-        std::this_thread::sleep_for (std::chrono::milliseconds (500));
+        std::this_thread::sleep_for (std::chrono::milliseconds (1000));
     }
 }
 
-void multicast_receiver_thread (const char *group_ip, unsigned short group_port) {
+std::map<std::string, std::pair<std::string, time_t>> messages_map;
+
+void print_messages () {
+    for (auto &it: messages_map) {
+        std::cout << "Source: " << it.first << "\n"
+                  << "Message: " << it.second.first << "\n"
+                  << "Time: " << it.second.second << "\n\n";
+    }
+}
+
+void expire_thread () {
+    while (true) {
+        time_t now = time (nullptr);
+        for (auto it = messages_map.begin (); it != messages_map.end ();) {
+            if (now - it->second.second > 5) {
+                it = messages_map.erase (it);
+            } else {
+                ++it;
+            }
+        }
+        std::this_thread::sleep_for (std::chrono::milliseconds (1000));
+    }
+}
+
+void receive_thread (const char *group_ip, unsigned short group_port) {
 
     int sock = setup_multicast_socket (group_ip);
 
@@ -83,25 +108,29 @@ void multicast_receiver_thread (const char *group_ip, unsigned short group_port)
         } else {
             buffer[received] = '\0';
 
-            struct timespec ts;
-            if (clock_gettime (CLOCK_REALTIME, &ts) == -1) {
-                perror ("Getting packet receipt time error");
-            } else {
-                std::cout << "[" << ts.tv_sec << "." << ts.tv_nsec << "] " << std::endl;
-            }
+            std::string source =
+                    inet_ntoa (src_addr.sin_addr) + std::string (":") + std::to_string (ntohs (src_addr.sin_port));
+            std::string message (buffer);
 
-            std::cout << "Received: " << buffer << "\n"
-                      << "From: " << inet_ntoa (src_addr.sin_addr) << ":" << ntohs (src_addr.sin_port) << std::endl;
+            if (messages_map.find (source) == messages_map.end ()) {
+                // TODO: process new entry
+                std::cout << "NEW\n";
+            }
+            messages_map[source] = std::make_pair (message, time (nullptr));
+
+            print_messages ();
         }
     }
 }
 
 int main () {
-    std::thread multicastSender (multicast_thread, "224.1.1.1", 1900);
-    std::thread multicastReceiver (multicast_receiver_thread, "224.1.1.1", 1900);
+    std::thread multicastSender (transmit_thread, "224.1.1.1", 1900);
+    std::thread multicastReceiver (receive_thread, "224.1.1.1", 1900);
+    std::thread expiryScanner (expire_thread);
 
     multicastSender.join ();
     multicastReceiver.join ();
+    expiryScanner.join ();
 
     return 0;
 }
