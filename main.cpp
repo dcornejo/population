@@ -1,6 +1,5 @@
 #include <iostream>
 #include <thread>
-#include <chrono>
 #include <string>
 #include <cstring>
 #include <stdexcept>
@@ -10,7 +9,30 @@
 #include <unistd.h>
 #include <map>
 
-int setup_multicast_socket (const char *group_ip) {
+/*
+ * map to store active peers
+ */
+std::map<std::string, std::pair<std::string, time_t>> messages_map;
+
+void print_messages () {
+    for (auto &it: messages_map) {
+        std::cout << "Source: " << it.first << "\n"
+                  << "Message: " << it.second.first << "\n"
+                  << "Time: " << it.second.second << "\n\n";
+    }
+}
+
+/**
+ * @brief Creates a new multicast socket with the given group IP.
+ *
+ * This function creates a new multicast socket that can be used to send and receive
+ * multicast datagrams on the network. The group IP specifies the IP address of the
+ * multicast group to join.
+ *
+ * @param group_ip The IP address of the multicast group to join.
+ * @return The file descriptor of the created multicast socket on success, -1 on failure.
+ */
+int new_multicast_socket (const char *group_ip) {
 
     int sock = socket (AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) {
@@ -35,9 +57,18 @@ int setup_multicast_socket (const char *group_ip) {
     return sock;
 }
 
+/**
+ * @brief Transmits a multicast message to the specified group IP and port.
+ *
+ * This function creates a new multicast socket, sets up the group IP and port, and continuously
+ * sends a message to the multicast group at a regular interval.
+ *
+ * @param group_ip The IP address of the multicast group to transmit to.
+ * @param group_port The port number of the multicast group to transmit to.
+ */
 void transmit_thread (const char *group_ip, unsigned short group_port) {
 
-    int sock = setup_multicast_socket (group_ip);
+    int sock = new_multicast_socket (group_ip);
     std::string message = "Hello Multicast Group";
 
     struct sockaddr_in group_addr;
@@ -51,37 +82,22 @@ void transmit_thread (const char *group_ip, unsigned short group_port) {
             0) {
             perror ("Sending datagram message error");
         }
-        std::this_thread::sleep_for (std::chrono::milliseconds (1000));
+        std::this_thread::sleep_for (std::chrono::milliseconds (500));
     }
 }
 
-std::map<std::string, std::pair<std::string, time_t>> messages_map;
-
-void print_messages () {
-    for (auto &it: messages_map) {
-        std::cout << "Source: " << it.first << "\n"
-                  << "Message: " << it.second.first << "\n"
-                  << "Time: " << it.second.second << "\n\n";
-    }
-}
-
-void expire_thread () {
-    while (true) {
-        time_t now = time (nullptr);
-        for (auto it = messages_map.begin (); it != messages_map.end ();) {
-            if (now - it->second.second > 5) {
-                it = messages_map.erase (it);
-            } else {
-                ++it;
-            }
-        }
-        std::this_thread::sleep_for (std::chrono::milliseconds (1000));
-    }
-}
-
+/**
+ * @brief Receive thread function to listen for incoming messages on a multicast group.
+ *
+ * This function creates a socket and joins a multicast group specified by the given IP address and port number.
+ * It continuously receives packets from the group and processes them until the thread is terminated.
+ *
+ * @param group_ip The IP address of the multicast group.
+ * @param group_port The port number of the multicast group.
+ */
 void receive_thread (const char *group_ip, unsigned short group_port) {
 
-    int sock = setup_multicast_socket (group_ip);
+    int sock = new_multicast_socket (group_ip);
 
     struct sockaddr_in group_addr;
     memset (&group_addr, 0, sizeof (group_addr));
@@ -101,7 +117,7 @@ void receive_thread (const char *group_ip, unsigned short group_port) {
     socklen_t src_addr_len = sizeof (src_addr);
 
     while (true) {
-        int received = recvfrom (sock, buffer, sizeof (buffer), 0, (struct sockaddr *) &src_addr, &src_addr_len);
+        ssize_t received = recvfrom (sock, buffer, sizeof (buffer), 0, (struct sockaddr *) &src_addr, &src_addr_len);
 
         if (received < 0) {
             perror ("Receiving datagram message error");
@@ -123,9 +139,38 @@ void receive_thread (const char *group_ip, unsigned short group_port) {
     }
 }
 
+/**
+ * @brief Expire thread to remove expired messages from messages_map.
+ *
+ * This function runs in an infinite loop, continuously checking the timestamp of each message in messages_map.
+ * If a message is older than 5 seconds, it is removed from the map.
+ *
+ * @note The messages_map is defined as a std::map<std::string, std::pair<std::string, time_t>>.
+ *
+ * @param None.
+ * @return None.
+ */
+void expire_thread () {
+    while (true) {
+        time_t now = time (nullptr);
+        for (auto it = messages_map.begin (); it != messages_map.end ();) {
+            if (now - it->second.second > 5) {
+                it = messages_map.erase (it);
+            } else {
+                ++it;
+            }
+        }
+        std::this_thread::sleep_for (std::chrono::milliseconds (250));
+    }
+}
+
+/**
+ * @file main.cpp
+ * @brief This file contains the main function which creates and joins threads for transmitting, receiving, and expiration.
+ */
 int main () {
-    std::thread multicastSender (transmit_thread, "224.1.1.1", 1900);
-    std::thread multicastReceiver (receive_thread, "224.1.1.1", 1900);
+    std::thread multicastSender (transmit_thread, "224.1.1.1", 50000);
+    std::thread multicastReceiver (receive_thread, "224.1.1.1", 50000);
     std::thread expiryScanner (expire_thread);
 
     multicastSender.join ();
