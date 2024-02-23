@@ -8,18 +8,55 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <map>
+#include <ctime>
+#include <mutex>
+#include <chrono>
 
 /*
  * map to store active peers
  */
 std::map<std::string, std::pair<std::string, time_t>> messages_map;
+std::mutex messages_mutex;
 
+/**
+ * @brief Prints the stored messages.
+ *
+ * This function prints the messages stored in the `messages_map`. It acquires a lock on `messages_mutex`
+ * before accessing the map to ensure thread-safety.
+ *
+ * The format of the printed message is as follows:
+ * Source: <source>
+ * Message: <message>
+ * Time: <time>
+ *
+ * Note: The messages are printed in no specific order.
+ */
 void print_messages () {
+    std::lock_guard<std::mutex> lock (messages_mutex);
+
     for (auto &it: messages_map) {
         std::cout << "Source: " << it.first << "\n"
                   << "Message: " << it.second.first << "\n"
                   << "Time: " << it.second.second << "\n\n";
     }
+}
+
+/**
+ * @brief Get current timestamp in milliseconds since epoch.
+ *
+ * This function returns the current timestamp in milliseconds since
+ * 1st January 1970 (epoch) using the system clock. The resolution of
+ * the timestamp depends on the system clock used and may vary.
+ *
+ * @return The current timestamp in milliseconds.
+ */
+std::int64_t get_timestamp () {
+    std::chrono::time_point<std::chrono::system_clock> now =
+            std::chrono::system_clock::now();
+    auto duration = now.time_since_epoch();
+    auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+
+    return millis;
 }
 
 /**
@@ -45,7 +82,7 @@ int new_multicast_socket (const char *group_ip) {
         throw std::runtime_error ("Setting SO_REUSEADDR failed");
     }
 
-    struct ip_mreq mreq;
+    struct ip_mreq mreq = {};
     mreq.imr_multiaddr.s_addr = inet_addr (group_ip);
     mreq.imr_interface.s_addr = htonl (INADDR_ANY);
 
@@ -58,20 +95,20 @@ int new_multicast_socket (const char *group_ip) {
 }
 
 /**
- * @brief Transmits a multicast message to the specified group IP and port.
+ * @brief Transmits a message to a multicast group.
  *
- * This function creates a new multicast socket, sets up the group IP and port, and continuously
- * sends a message to the multicast group at a regular interval.
+ * This function creates a multicast socket and continuously sends the provided message to the specified
+ * multicast group. The message is sent every 500 milliseconds until the program is terminated.
  *
- * @param group_ip The IP address of the multicast group to transmit to.
- * @param group_port The port number of the multicast group to transmit to.
+ * @param group_ip The IP address of the multicast group to send the message to.
+ * @param group_port The network port of the multicast group.
  */
 void transmit_thread (const char *group_ip, unsigned short group_port) {
 
     int sock = new_multicast_socket (group_ip);
-    std::string message = "Hello Multicast Group";
+    std::string message = "{\"id\": 0}";
 
-    struct sockaddr_in group_addr;
+    struct sockaddr_in group_addr = {};
     memset ((char *) &group_addr, 0, sizeof (group_addr));
     group_addr.sin_family = AF_INET;
     group_addr.sin_addr.s_addr = inet_addr (group_ip);
@@ -81,25 +118,29 @@ void transmit_thread (const char *group_ip, unsigned short group_port) {
         if (sendto (sock, message.c_str (), message.size (), 0, (struct sockaddr *) &group_addr, sizeof (group_addr)) <
             0) {
             perror ("Sending datagram message error");
+            break;
         }
+
         std::this_thread::sleep_for (std::chrono::milliseconds (500));
     }
 }
 
 /**
- * @brief Receive thread function to listen for incoming messages on a multicast group.
+ * @brief Receives and processes multicast datagrams.
  *
- * This function creates a socket and joins a multicast group specified by the given IP address and port number.
- * It continuously receives packets from the group and processes them until the thread is terminated.
+ * This function creates a multicast socket, binds it to the specified group IP and port,
+ * and then continuously receives and processes multicast datagrams. The received messages
+ * are stored in a map along with their source and timestamp.
  *
- * @param group_ip The IP address of the multicast group.
- * @param group_port The port number of the multicast group.
+ * @param group_ip The IP address of the multicast group to join.
+ * @param group_port The port number of the multicast group to join.
+ * @throws std::runtime_error If any error occurs while creating or binding the socket.
  */
 void receive_thread (const char *group_ip, unsigned short group_port) {
 
     int sock = new_multicast_socket (group_ip);
 
-    struct sockaddr_in group_addr;
+    struct sockaddr_in group_addr = {};
     memset (&group_addr, 0, sizeof (group_addr));
     group_addr.sin_family = AF_INET;
     group_addr.sin_addr.s_addr = htonl (INADDR_ANY);
@@ -110,7 +151,7 @@ void receive_thread (const char *group_ip, unsigned short group_port) {
     }
 
     char buffer[1024];
-    struct sockaddr_in src_addr;
+    struct sockaddr_in src_addr = {};
 
     memset (&src_addr, 0, sizeof (src_addr));
 
@@ -121,6 +162,7 @@ void receive_thread (const char *group_ip, unsigned short group_port) {
 
         if (received < 0) {
             perror ("Receiving datagram message error");
+            break;
         } else {
             buffer[received] = '\0';
 
@@ -128,11 +170,16 @@ void receive_thread (const char *group_ip, unsigned short group_port) {
                     inet_ntoa (src_addr.sin_addr) + std::string (":") + std::to_string (ntohs (src_addr.sin_port));
             std::string message (buffer);
 
-            if (messages_map.find (source) == messages_map.end ()) {
-                // TODO: process new entry
-                std::cout << "NEW\n";
+            {
+                std::lock_guard<std::mutex> lock (messages_mutex);
+
+                if (messages_map.find (source) == messages_map.end ()) {
+                    // TODO: process new entry
+                    std::cout << "NEW\n";
+                }
+                messages_map[source] = std::make_pair (message, get_timestamp());
+
             }
-            messages_map[source] = std::make_pair (message, time (nullptr));
 
             print_messages ();
         }
@@ -150,16 +197,24 @@ void receive_thread (const char *group_ip, unsigned short group_port) {
  * @param None.
  * @return None.
  */
+
 void expire_thread () {
     while (true) {
+
         time_t now = time (nullptr);
-        for (auto it = messages_map.begin (); it != messages_map.end ();) {
-            if (now - it->second.second > 5) {
-                it = messages_map.erase (it);
-            } else {
-                ++it;
+
+        {
+            std::lock_guard<std::mutex> lock (messages_mutex);
+
+            for (auto it = messages_map.begin (); it != messages_map.end ();) {
+                if (now - it->second.second > 5) {
+                    it = messages_map.erase (it);
+                } else {
+                    ++it;
+                }
             }
         }
+
         std::this_thread::sleep_for (std::chrono::milliseconds (250));
     }
 }
