@@ -1,0 +1,9 @@
+{
+  "id": "shs_x86",
+  "propulsion": {
+    "priority": 1
+  },
+  "video": {
+    "priority": 2
+  }
+}
