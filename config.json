@@ -1,9 +1,18 @@
 {
-  "id": "shs_x86",
-  "propulsion": {
-    "priority": 1
-  },
-  "video": {
-    "priority": 2
+  "id": "hostname",
+  "address": "x.x.x.x:p",
+  "capabilities": {
+    "propulsion": {
+      "server": true,
+      "client": false
+    },
+    "email": {
+      "server": true,
+      "client": false
+    },
+    "surveillance": {
+      "server": true,
+      "client": false
+    }
   }
 }
