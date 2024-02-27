@@ -8,7 +8,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <map>
-#include <ctime>
+//#include <ctime>
 #include <mutex>
 #include <chrono>
 
@@ -51,8 +51,10 @@ void print_messages () {
  * @return The current timestamp in milliseconds.
  */
 std::int64_t get_timestamp () {
+
     std::chrono::time_point<std::chrono::system_clock> now =
             std::chrono::system_clock::now();
+
     auto duration = now.time_since_epoch();
     auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 
@@ -60,14 +62,11 @@ std::int64_t get_timestamp () {
 }
 
 /**
- * @brief Creates a new multicast socket with the given group IP.
+ * Creates a new multicast socket.
  *
- * This function creates a new multicast socket that can be used to send and receive
- * multicast datagrams on the network. The group IP specifies the IP address of the
- * multicast group to join.
- *
- * @param group_ip The IP address of the multicast group to join.
- * @return The file descriptor of the created multicast socket on success, -1 on failure.
+ * @param group_ip The IP address of the multicast group.
+ * @return The socket file descriptor.
+ * @throws std::runtime_error if an error occurs while creating or configuring the socket.
  */
 int new_multicast_socket (const char *group_ip) {
 
@@ -175,13 +174,13 @@ void receive_thread (const char *group_ip, unsigned short group_port) {
 
                 if (messages_map.find (source) == messages_map.end ()) {
                     // TODO: process new entry
-                    std::cout << "NEW\n";
+                    std::cout << source << " acquired." << std::endl;
                 }
-                messages_map[source] = std::make_pair (message, get_timestamp());
 
+                messages_map[source] = std::make_pair (message, get_timestamp());
             }
 
-            print_messages ();
+            //print_messages ();
         }
     }
 }
@@ -198,16 +197,21 @@ void receive_thread (const char *group_ip, unsigned short group_port) {
  * @return None.
  */
 
+const std::int64_t EXPIRY_MS = 1000;
+
 void expire_thread () {
+
     while (true) {
 
-        time_t now = time (nullptr);
+        auto now = get_timestamp();
 
         {
             std::lock_guard<std::mutex> lock (messages_mutex);
 
             for (auto it = messages_map.begin (); it != messages_map.end ();) {
-                if (now - it->second.second > 5) {
+                if (now - it->second.second > EXPIRY_MS) {
+                    // process expired message
+                    std::cout << it->first << " expired." << std::endl;
                     it = messages_map.erase (it);
                 } else {
                     ++it;
