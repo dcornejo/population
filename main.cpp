@@ -8,9 +8,16 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <map>
-//#include <ctime>
 #include <mutex>
 #include <chrono>
+#include <ifaddrs.h>
+#include <cerrno>
+
+#include <nlohmann/json.hpp>
+
+#include "monitor.h"
+
+using json = nlohmann::json;
 
 /*
  * map to store active peers
@@ -42,23 +49,65 @@ void print_messages () {
 }
 
 /**
- * @brief Get current timestamp in milliseconds since epoch.
+ * @brief Get the host name of the system.
  *
- * This function returns the current timestamp in milliseconds since
- * 1st January 1970 (epoch) using the system clock. The resolution of
- * the timestamp depends on the system clock used and may vary.
+ * This function retrieves the host name of the system. It uses the gethostname() system call to get the
+ * host name and stores it in a string. The maximum length of the host name is determined using the
+ * sysconf(_SC_HOST_NAME_MAX) system call. The function dynamically allocates a buffer of size len and
+ * passes it to gethostname() function. If the gethostname() call is successful, it returns the host name,
+ * otherwise it throws a std::runtime_error with the error message obtained from strerror().
  *
- * @return The current timestamp in milliseconds.
+ * @return The host name of the system.
+ *
+ * @throws std::runtime_error If the gethostname() call fails.
  */
-std::int64_t get_timestamp () {
+std::string get_host_name () {
+    const size_t len = sysconf(_SC_HOST_NAME_MAX) + 1; // +1 for the null-terminator
+    std::vector<char> buffer(len);
 
-    std::chrono::time_point<std::chrono::system_clock> now =
-            std::chrono::system_clock::now();
+    if (gethostname(buffer.data(), buffer.size()) != 0) {
+        throw std::runtime_error("gethostname() failed: " + std::string(strerror(errno)));
+    }
 
-    auto duration = now.time_since_epoch();
-    auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+    return buffer.data();
+}
 
-    return millis;
+/**
+ * @brief Get the primary IP address of the specified interface.
+ *
+ * This function retrieves the primary IP address of the specified interface (eth0) by iterating through the list
+ * of network interfaces on the system obtained using getifaddrs(). It checks for interfaces of type AF_INET (IPv4)
+ * and with the name "eth0". Once a matching interface is found, it retrieves the IP address using inet_ntop() and
+ * stores it in primaryIpAddress.
+ *
+ * @return The primary IP address of the specified interface.
+ *
+ * @throws std::runtime_error If the system call getifaddrs() fails to retrieve the interface information.
+ *
+ * @see getifaddrs()
+ * @see inet_ntop()
+ */
+std::string get_interface_address () {
+    struct ifaddrs *interfaces;
+    std::string primaryIpAddress;
+
+    if (getifaddrs(&interfaces) == -1) {
+        throw std::runtime_error("Can't get the interface informations");
+    } else {
+        for (struct ifaddrs *temp = interfaces; temp != nullptr; temp = temp->ifa_next) {
+            if (temp->ifa_addr && temp->ifa_addr->sa_family == AF_INET && temp->ifa_name == std::string("eth0")) {
+                char ip[INET_ADDRSTRLEN];
+
+                void* tmpAddrPtr = &reinterpret_cast<struct sockaddr_in *>(temp->ifa_addr)->sin_addr;
+                inet_ntop(AF_INET, tmpAddrPtr, ip, INET_ADDRSTRLEN);
+                primaryIpAddress = std::string(ip);
+                break;
+            }
+        }
+    }
+
+    freeifaddrs(interfaces);
+    return primaryIpAddress;
 }
 
 /**
@@ -105,7 +154,19 @@ int new_multicast_socket (const char *group_ip) {
 void transmit_thread (const char *group_ip, unsigned short group_port) {
 
     int sock = new_multicast_socket (group_ip);
-    std::string message = "{\"id\": 0}";
+
+    nlohmann::ordered_json j;
+
+    auto hostname = get_host_name();
+    auto address = get_interface_address();
+
+    j["id"] = hostname;
+    j["address"] = address;
+    j["active"] = true;
+    j["architecture"] = "x86_64";
+    j["provides"] = { "msmtpd", "video" };
+
+    std::string message = j.dump(4);
 
     struct sockaddr_in group_addr = {};
     memset ((char *) &group_addr, 0, sizeof (group_addr));
@@ -114,7 +175,7 @@ void transmit_thread (const char *group_ip, unsigned short group_port) {
     group_addr.sin_port = htons (group_port);
 
     while (true) {
-        if (sendto (sock, message.c_str (), message.size (), 0, (struct sockaddr *) &group_addr, sizeof (group_addr)) <
+        if (sendto (sock, message.c_str(), message.size (), 0, reinterpret_cast<struct sockaddr *>(&group_addr), sizeof (group_addr)) <
             0) {
             perror ("Sending datagram message error");
             break;
@@ -145,7 +206,7 @@ void receive_thread (const char *group_ip, unsigned short group_port) {
     group_addr.sin_addr.s_addr = htonl (INADDR_ANY);
     group_addr.sin_port = htons (group_port);
 
-    if (bind (sock, (struct sockaddr *) &group_addr, sizeof (group_addr)) < 0) {
+    if (bind (sock, reinterpret_cast<struct sockaddr *>(&group_addr), sizeof (group_addr)) < 0) {
         throw std::runtime_error ("Binding datagram socket error");
     }
 
@@ -157,22 +218,17 @@ void receive_thread (const char *group_ip, unsigned short group_port) {
     socklen_t src_addr_len = sizeof (src_addr);
 
     while (true) {
-        ssize_t received = recvfrom (sock, buffer, sizeof (buffer), 0, (struct sockaddr *) &src_addr, &src_addr_len);
-
-        if (received < 0) {
+        if (ssize_t received = recvfrom (sock, buffer, sizeof (buffer), 0, reinterpret_cast<struct sockaddr *>(&src_addr), &src_addr_len); received < 0) {
             perror ("Receiving datagram message error");
             break;
         } else {
-            buffer[received] = '\0';
-
-            std::string source =
-                    inet_ntoa (src_addr.sin_addr) + std::string (":") + std::to_string (ntohs (src_addr.sin_port));
-            std::string message (buffer);
-
-            {
+            buffer[received] = '\0'; {
+                std::string source =
+                        inet_ntoa (src_addr.sin_addr) + std::string (":") + std::to_string (ntohs (src_addr.sin_port));
+                std::string message (buffer);
                 std::lock_guard<std::mutex> lock (messages_mutex);
 
-                if (messages_map.find (source) == messages_map.end ()) {
+                if (!messages_map.contains (source)) {
                     // TODO: process new entry
                     std::cout << source << " acquired." << std::endl;
                 }
@@ -180,7 +236,7 @@ void receive_thread (const char *group_ip, unsigned short group_port) {
                 messages_map[source] = std::make_pair (message, get_timestamp());
             }
 
-            //print_messages ();
+            print_messages ();
         }
     }
 }
@@ -197,7 +253,7 @@ void receive_thread (const char *group_ip, unsigned short group_port) {
  * @return None.
  */
 
-const std::int64_t EXPIRY_MS = 1000;
+constexpr std::int64_t EXPIRY_MS = 1000;
 
 void expire_thread () {
 
@@ -238,3 +294,4 @@ int main () {
 
     return 0;
 }
+
