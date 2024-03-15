@@ -5,9 +5,16 @@
 #ifndef HOSTMON_MONITOR_H
 #define HOSTMON_MONITOR_H
 
-const int PADDED = 1;
-const int PEXISTS = 2;
+#include <chrono>
 
-std::int64_t get_timestamp ();
+class participant;
+
+enum ParticipantStatus {
+    PEXISTS,
+    PADDED
+};
+
+std::uint64_t get_timestamp ();
+ParticipantStatus report_participant (const participant &p);
 
 #endif //HOSTMON_MONITOR_H
