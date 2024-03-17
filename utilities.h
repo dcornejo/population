@@ -17,9 +17,18 @@ extern std::mutex messages_mutex;
 void print_messages ();
 
 std::string get_host_name ();
+
 std::string get_interface_address ();
+
 int new_multicast_socket (const char *group_ip);
 
+/**
+ * @class system_info
+ * @brief Represents system information
+ *
+ * The system_info class provides information about the underlying
+ * system, such as the system name, node name, release version, and machine type.
+ */
 class system_info {
 public:
     std::string sysname;

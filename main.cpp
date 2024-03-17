@@ -10,8 +10,6 @@
 #include <map>
 #include <mutex>
 #include <chrono>
-#include <ifaddrs.h>
-#include <cerrno>
 
 #include <nlohmann/json.hpp>
 
@@ -19,7 +17,6 @@
 #include "utilities.h"
 
 using json = nlohmann::json;
-
 
 /**
  * @brief Transmits a message to a multicast group.
@@ -31,37 +28,43 @@ using json = nlohmann::json;
  * @param group_port The network port of the multicast group.
  */
 void transmit_thread (const char *group_ip, unsigned short group_port) {
-
-    int sock = new_multicast_socket (group_ip);
+    int sock = new_multicast_socket(group_ip);
 
     nlohmann::ordered_json j;
 
     auto sys_info = new system_info;
     auto address = get_interface_address();
 
+    // basic identification
     j["id"] = sys_info->nodename;
     j["address"] = address;
+
+    // role information
     j["active"] = true;
+    j["provides"] = {"msmtpd", "video"};
+
+    // participant information
     j["operating_system"] = sys_info->sysname;
+    j["release"] = sys_info->release;
     j["architecture"] = sys_info->machine;
-    j["provides"] = { "msmtpd", "video" };
 
     std::string message = j.dump(4);
 
     struct sockaddr_in group_addr = {};
-    memset ((char *) &group_addr, 0, sizeof (group_addr));
+    memset((char *)&group_addr, 0, sizeof (group_addr));
     group_addr.sin_family = AF_INET;
-    group_addr.sin_addr.s_addr = inet_addr (group_ip);
-    group_addr.sin_port = htons (group_port);
+    group_addr.sin_addr.s_addr = inet_addr(group_ip);
+    group_addr.sin_port = htons(group_port);
 
     while (true) {
-        if (sendto (sock, message.c_str(), message.size (), 0, reinterpret_cast<struct sockaddr *>(&group_addr), sizeof (group_addr)) <
+        if (sendto(sock, message.c_str(), message.size(), 0, reinterpret_cast<struct sockaddr *>(&group_addr),
+                   sizeof (group_addr)) <
             0) {
-            perror ("Sending datagram message error");
+            perror("Sending datagram message error");
             break;
         }
 
-        std::this_thread::sleep_for (std::chrono::milliseconds (500));
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 }
 
@@ -77,48 +80,47 @@ void transmit_thread (const char *group_ip, unsigned short group_port) {
  * @throws std::runtime_error If any error occurs while creating or binding the socket.
  */
 void receive_thread (const char *group_ip, unsigned short group_port) {
-
-    int sock = new_multicast_socket (group_ip);
+    int sock = new_multicast_socket(group_ip);
 
     struct sockaddr_in group_addr = {};
-    memset (&group_addr, 0, sizeof (group_addr));
+    memset(&group_addr, 0, sizeof (group_addr));
     group_addr.sin_family = AF_INET;
-    group_addr.sin_addr.s_addr = htonl (INADDR_ANY);
-    group_addr.sin_port = htons (group_port);
+    group_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    group_addr.sin_port = htons(group_port);
 
-    if (bind (sock, reinterpret_cast<struct sockaddr *>(&group_addr), sizeof (group_addr)) < 0) {
-        throw std::runtime_error ("Binding datagram socket error");
+    if (bind(sock, reinterpret_cast<struct sockaddr *>(&group_addr), sizeof (group_addr)) < 0) {
+        throw std::runtime_error("Binding datagram socket error");
     }
 
     char buffer[1024];
     struct sockaddr_in src_addr = {};
 
-    memset (&src_addr, 0, sizeof (src_addr));
+    memset(&src_addr, 0, sizeof (src_addr));
 
     socklen_t src_addr_len = sizeof (src_addr);
 
     while (true) {
-        if (ssize_t received = recvfrom (sock, buffer, sizeof (buffer), 0, reinterpret_cast<struct sockaddr *>(&src_addr), &src_addr_len); received < 0) {
-            perror ("Receiving datagram message error");
+        if (ssize_t received = recvfrom(sock, buffer, sizeof (buffer), 0,
+                                        reinterpret_cast<struct sockaddr *>(&src_addr), &src_addr_len); received < 0) {
+            perror("Receiving datagram message error");
             break;
-        } else {
-            buffer[received] = '\0';
-
-            {
+        }
+        else {
+            buffer[received] = '\0'; {
                 std::string source =
-                        inet_ntoa (src_addr.sin_addr) + std::string (":") + std::to_string (ntohs (src_addr.sin_port));
-                std::string message (buffer);
-                std::lock_guard<std::mutex> lock (messages_mutex);
+                        inet_ntoa(src_addr.sin_addr) + std::string(":") + std::to_string(ntohs(src_addr.sin_port));
+                std::string message(buffer);
+                std::lock_guard<std::mutex> lock(messages_mutex);
 
-                if (!messages_map.contains (source)) {
+                if (!messages_map.contains(source)) {
                     // TODO: process new entry
                     std::cout << source << " acquired." << std::endl;
                 }
 
-                messages_map[source] = std::make_pair (message, get_timestamp());
+                messages_map[source] = std::make_pair(message, get_timestamp());
             }
 
-            print_messages ();
+            print_messages();
         }
     }
 }
@@ -138,26 +140,23 @@ void receive_thread (const char *group_ip, unsigned short group_port) {
 constexpr std::int64_t EXPIRY_MS = 1000;
 
 void expire_thread () {
-
     while (true) {
+        auto now = get_timestamp(); {
+            std::lock_guard<std::mutex> lock(messages_mutex);
 
-        auto now = get_timestamp();
-
-        {
-            std::lock_guard<std::mutex> lock (messages_mutex);
-
-            for (auto it = messages_map.begin (); it != messages_map.end ();) {
+            for (auto it = messages_map.begin(); it != messages_map.end();) {
                 if (now - it->second.second > EXPIRY_MS) {
                     // process expired message
                     std::cout << it->first << " expired." << std::endl;
-                    it = messages_map.erase (it);
-                } else {
+                    it = messages_map.erase(it);
+                }
+                else {
                     ++it;
                 }
             }
         }
 
-        std::this_thread::sleep_for (std::chrono::milliseconds (250));
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
     }
 }
 
@@ -166,14 +165,13 @@ void expire_thread () {
  * @brief This file contains the main function which creates and joins threads for transmitting, receiving, and expiration.
  */
 int main () {
-    std::thread multicastSender (transmit_thread, "224.1.1.1", 50000);
-    std::thread multicastReceiver (receive_thread, "224.1.1.1", 50000);
-    std::thread expiryScanner (expire_thread);
+    std::thread multicastSender(transmit_thread, "224.1.1.1", 50000);
+    std::thread multicastReceiver(receive_thread, "224.1.1.1", 50000);
+    std::thread expiryScanner(expire_thread);
 
-    multicastSender.join ();
-    multicastReceiver.join ();
-    expiryScanner.join ();
+    multicastSender.join();
+    multicastReceiver.join();
+    expiryScanner.join();
 
     return 0;
 }
-
