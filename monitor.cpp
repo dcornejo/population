@@ -94,7 +94,7 @@ void check_participants () {
         const auto last_seen = it->second["last_seen"].get<std::uint64_t>();
         auto id = it->second["id"];
 
-        if (const std::uint64_t age = current_timestamp - last_seen; age > 1000) {
+        if (const std::uint64_t age = current_timestamp - last_seen; age > 600) {
             std::cout << current_timestamp << ": offline " << id << std::endl;
             it = participant_map.erase(it);
         } else {
