@@ -3,6 +3,8 @@ project(hostmon)
 
 set(CMAKE_CXX_STANDARD 20)
 
+include_directories("/usr/local/include")
+
 add_executable(hostmon main.cpp
         monitor.cpp
         monitor.h

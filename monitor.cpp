@@ -4,9 +4,13 @@
 #include <chrono>
 #include <iostream>
 #include <map>
-#include <vector>
+#include <nlohmann/json.hpp>
 
-std::map<std::string, participant> participant_map;
+using json = nlohmann::json;
+using ordered_json = nlohmann::ordered_json;
+
+std::map<std::string, ordered_json> participant_map;
+std::mutex participant_mutex;
 
 /**
  * @brief Get current timestamp in milliseconds since epoch.
@@ -28,31 +32,71 @@ std::uint64_t get_timestamp () {
 }
 
 
-ParticipantStatus report_participant (const participant &p) {
-    auto it = participant_map.find(p.get_id());
+/**
+ * @brief Reports a participant and updates the participant_map
+ *
+ * This function is responsible for reporting a participant and updating the
+ * participant_map. If the participant already exists in the map, its "last_seen"
+ * timestamp will be updated. If the participant is new, it will be added to the map
+ * with "first_seen" and "last_seen" timestamps set to the current timestamp.
+ *
+ * @param j The JSON object representing the participant to be reported
+ * @return The participant status indicating whether the participant already exists
+ *         or was successfully added to the map
+ */
+ParticipantStatus report_participant (nlohmann::ordered_json &j) {
     auto ts = get_timestamp();
+    auto status = PARTICIPANT_EXISTS;
 
-    if (it != participant_map.end()) {
-        // Participant exists, so we update 'seen' and return PEXISTS
+    std::string id = j["id"];
 
-        it->second.set_last_seen(ts);
+    std::lock_guard<std::mutex> lock(participant_mutex);
 
-        std::cout << "saw " << p.get_id() << " at " << ts << std::endl;
+    if (participant_map.contains(id)) {
+        auto w = participant_map[id];
 
-        return PEXISTS;
+        // updating existing entry
+
+        // this needs to update the entry already in the map!
+        w["last_seen"] = ts;
+        participant_map[id] = w;
+
+        std::cout << ts << ": updating " << id <<std::endl;
+        // std::cout << w.dump(4) << std::endl;
+
+    } else {
+        // adding new entry
+
+        j["first_seen"] = ts;;
+        j["last_seen"] = ts;
+        participant_map[id] = j;
+
+        std::cout << ts << ": adding " << id <<std::endl;
+        // std::cout << j.dump(4) << std::endl;
+
+        status = PARTICIPANT_ADDED;
     }
-    else {
-        // New participant, so we add to the map and return PADDED
 
-        participant new_participant = p;
+    // std::cout << participant_map[id].dump(4) << std::endl << std::endl;
 
-        new_participant.set_last_seen(ts);
-        new_participant.set_first_seen(ts);
+    return status;
+}
 
-        participant_map[new_participant.get_id()] = new_participant;
+void check_participants () {
+    auto current_timestamp = get_timestamp();
 
-        std::cout << "new " << p.get_id() << " at " << ts << std::endl;
+    for (auto it = participant_map.begin(); it != participant_map.end();) {
 
-        return PADDED;
+        auto last_seen = it->second["last_seen"].get<std::uint64_t>();
+        auto id = it->second["id"];
+
+        std::uint64_t age = current_timestamp - last_seen;
+
+        if (age > 2000) {
+            std::cout << current_timestamp << ": stale entry " << id << " (" << age << "ms ago)" << std::endl;
+            it = participant_map.erase(it);
+        } else {
+            ++it;
+        }
     }
 }

@@ -7,8 +7,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <map>
-#include <mutex>
 #include <chrono>
 
 #include <nlohmann/json.hpp>
@@ -17,6 +15,7 @@
 #include "utilities.h"
 
 using json = nlohmann::json;
+using ordered_json = nlohmann::ordered_json;
 
 /**
  * @brief Transmits a message to a multicast group.
@@ -30,7 +29,7 @@ using json = nlohmann::json;
 void transmit_thread (const char *group_ip, unsigned short group_port) {
     int sock = new_multicast_socket(group_ip);
 
-    nlohmann::ordered_json j;
+    ordered_json j;
 
     auto sys_info = new system_info;
     auto address = get_interface_address();
@@ -38,9 +37,12 @@ void transmit_thread (const char *group_ip, unsigned short group_port) {
     // basic identification
     j["id"] = sys_info->nodename;
     j["address"] = address;
+    // j["first_seen"] = 0;
+    // j["last_seen"] = 0;
 
     // role information
     j["active"] = true;
+
     j["provides"] = {"msmtpd", "video"};
 
     // participant information
@@ -58,8 +60,7 @@ void transmit_thread (const char *group_ip, unsigned short group_port) {
 
     while (true) {
         if (sendto(sock, message.c_str(), message.size(), 0, reinterpret_cast<struct sockaddr *>(&group_addr),
-                   sizeof (group_addr)) <
-            0) {
+                   sizeof (group_addr)) < 0) {
             perror("Sending datagram message error");
             break;
         }
@@ -106,21 +107,9 @@ void receive_thread (const char *group_ip, unsigned short group_port) {
             break;
         }
         else {
-            buffer[received] = '\0'; {
-                std::string source =
-                        inet_ntoa(src_addr.sin_addr) + std::string(":") + std::to_string(ntohs(src_addr.sin_port));
-                std::string message(buffer);
-                std::lock_guard<std::mutex> lock(messages_mutex);
-
-                if (!messages_map.contains(source)) {
-                    // TODO: process new entry
-                    std::cout << source << " acquired." << std::endl;
-                }
-
-                messages_map[source] = std::make_pair(message, get_timestamp());
-            }
-
-            print_messages();
+            buffer[received] = '\0';
+            auto x = nlohmann::ordered_json::parse(buffer);
+            report_participant(x);
         }
     }
 }
@@ -141,20 +130,8 @@ constexpr std::int64_t EXPIRY_MS = 1000;
 
 void expire_thread () {
     while (true) {
-        auto now = get_timestamp(); {
-            std::lock_guard<std::mutex> lock(messages_mutex);
-
-            for (auto it = messages_map.begin(); it != messages_map.end();) {
-                if (now - it->second.second > EXPIRY_MS) {
-                    // process expired message
-                    std::cout << it->first << " expired." << std::endl;
-                    it = messages_map.erase(it);
-                }
-                else {
-                    ++it;
-                }
-            }
-        }
+        // auto now = get_timestamp();
+        check_participants();
 
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
     }

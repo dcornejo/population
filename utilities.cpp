@@ -1,47 +1,15 @@
-//
-// Created by dave on 3/15/2024.
-//
 
 #include "utilities.h"
 
 #include <cstring>
 #include <ifaddrs.h>
 #include <iostream>
-#include <map>
 #include <mutex>
 #include <unistd.h>
 #include <vector>
 #include <arpa/inet.h>
 #include <netinet/in.h>
-
-/*
- * map to store active peers
- */
-std::map<std::string, std::pair<std::string, time_t>> messages_map;
-std::mutex messages_mutex;
-
-/**
- * @brief Prints the stored messages.
- *
- * This function prints the messages stored in the `messages_map`. It acquires a lock on `messages_mutex`
- * before accessing the map to ensure thread-safety.
- *
- * The format of the printed message is as follows:
- * Source: <source>
- * Message: <message>
- * Time: <time>
- *
- * Note: The messages are printed in no specific order.
- */
-void print_messages () {
-    std::lock_guard<std::mutex> lock(messages_mutex);
-
-    for (auto &it: messages_map) {
-        std::cout << "Source: " << it.first << "\n"
-                << "Message: " << it.second.first << "\n"
-                << "Time: " << it.second.second << "\n\n";
-    }
-}
+#include <sys/socket.h>
 
 /**
  * @brief Get the host name of the system.
@@ -75,6 +43,8 @@ std::string get_host_name () {
  * and with the name "eth0". Once a matching interface is found, it retrieves the IP address using inet_ntop() and
  * stores it in primaryIpAddress.
  *
+ * TODO: find a way to find the actual primary interface name/ip
+ *
  * @return The primary IP address of the specified interface.
  *
  * @throws std::runtime_error If the system call getifaddrs() fails to retrieve the interface information.
@@ -103,6 +73,7 @@ std::string get_interface_address () {
     }
 
     freeifaddrs(interfaces);
+
     return primaryIpAddress;
 }
 
