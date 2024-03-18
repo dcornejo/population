@@ -53,22 +53,21 @@ std::string get_host_name () {
  * @see inet_ntop()
  */
 std::string get_interface_address () {
-    struct ifaddrs *interfaces;
+    ifaddrs *interfaces;
     std::string primaryIpAddress;
 
     if (getifaddrs(&interfaces) == -1) {
         throw std::runtime_error("Can't get the interface informations");
     }
-    else {
-        for (struct ifaddrs *temp = interfaces; temp != nullptr; temp = temp->ifa_next) {
-            if (temp->ifa_addr && temp->ifa_addr->sa_family == AF_INET && temp->ifa_name == std::string("eth0")) {
-                char ip[INET_ADDRSTRLEN];
 
-                void *tmpAddrPtr = &reinterpret_cast<struct sockaddr_in *>(temp->ifa_addr)->sin_addr;
-                inet_ntop(AF_INET, tmpAddrPtr, ip, INET_ADDRSTRLEN);
-                primaryIpAddress = std::string(ip);
-                break;
-            }
+    for (const ifaddrs *temp = interfaces; temp != nullptr; temp = temp->ifa_next) {
+        if (temp->ifa_addr && temp->ifa_addr->sa_family == AF_INET && temp->ifa_name == std::string("eth0")) {
+            char ip[INET_ADDRSTRLEN];
+
+            const void *tmpAddrPtr = &reinterpret_cast<struct sockaddr_in *>(temp->ifa_addr)->sin_addr;
+            inet_ntop(AF_INET, tmpAddrPtr, ip, INET_ADDRSTRLEN);
+            primaryIpAddress = std::string(ip);
+            break;
         }
     }
 
@@ -85,18 +84,18 @@ std::string get_interface_address () {
  * @throws std::runtime_error if an error occurs while creating or configuring the socket.
  */
 int new_multicast_socket (const char *group_ip) {
-    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    const int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) {
         throw std::runtime_error("Failed to create socket");
     }
 
-    int yes = 1;
+    constexpr int yes = 1;
     if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) < 0) {
         close(sock);
         throw std::runtime_error("Setting SO_REUSEADDR failed");
     }
 
-    struct ip_mreq mreq = {};
+    ip_mreq mreq = {};
     mreq.imr_multiaddr.s_addr = inet_addr(group_ip);
     mreq.imr_interface.s_addr = htonl(INADDR_ANY);
 

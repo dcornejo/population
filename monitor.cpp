@@ -22,11 +22,11 @@ std::mutex participant_mutex;
  * @return The current timestamp in milliseconds.
  */
 std::uint64_t get_timestamp () {
-    std::chrono::time_point<std::chrono::system_clock> now =
+    const std::chrono::time_point<std::chrono::system_clock> now =
             std::chrono::system_clock::now();
 
-    auto duration = now.time_since_epoch();
-    auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+    const auto duration = now.time_since_epoch();
+    const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 
     return millis;
 }
@@ -45,9 +45,9 @@ ParticipantStatus report_participant (nlohmann::ordered_json &j) {
     auto ts = get_timestamp();
     auto status = PARTICIPANT_EXISTS;
 
-    std::string id = j["id"];
+    const std::string id = j["id"];
 
-    std::lock_guard<std::mutex> lock(participant_mutex);
+    std::lock_guard lock(participant_mutex);
 
     if (participant_map.contains(id)) {
         auto w = participant_map[id];
@@ -87,16 +87,14 @@ ParticipantStatus report_participant (nlohmann::ordered_json &j) {
  *
  * @note This method assumes the existence of the*/
 void check_participants () {
-    auto current_timestamp = get_timestamp();
+    const auto current_timestamp = get_timestamp();
 
     for (auto it = participant_map.begin(); it != participant_map.end();) {
 
-        auto last_seen = it->second["last_seen"].get<std::uint64_t>();
+        const auto last_seen = it->second["last_seen"].get<std::uint64_t>();
         auto id = it->second["id"];
 
-        std::uint64_t age = current_timestamp - last_seen;
-
-        if (age > 1000) {
+        if (const std::uint64_t age = current_timestamp - last_seen; age > 1000) {
             std::cout << current_timestamp << ": offline " << id << std::endl;
             it = participant_map.erase(it);
         } else {

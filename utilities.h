@@ -30,18 +30,17 @@ public:
     std::string machine;
 
     system_info () {
-        struct ::utsname info;
+        utsname info = {};
 
-        if (::uname(&info) < 0) {
+        if (uname(&info) < 0) {
             throw std::runtime_error("Failed to get system information");
         }
-        else {
-            sysname = info.sysname;
-            nodename = info.nodename;
-            release = info.release;
-            version = info.version;
-            machine = info.machine;
-        }
+
+        sysname = info.sysname;
+        nodename = info.nodename;
+        release = info.release;
+        version = info.version;
+        machine = info.machine;
     }
 };
 

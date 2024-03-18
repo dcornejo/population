@@ -12,7 +12,7 @@ enum ParticipantStatus {
 };
 
 class participant {
-private:
+
     // the time we first saw this participant
     std::uint64_t first_seen;
 
@@ -32,7 +32,7 @@ private:
     std::vector<std::string> provides;
 
 public:
-    //participant() : first_seen(0), last_seen(0), active(false) {}
+    participant() : first_seen(0), last_seen(0), active(false) {}
 
 
     [[nodiscard]] std::string get_id () const {
@@ -55,7 +55,7 @@ public:
         return active;
     }
 
-    void set_active (bool new_active) {
+    void set_active (const bool new_active) {
         active = new_active;
     }
 
