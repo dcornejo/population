@@ -57,7 +57,7 @@ ParticipantStatus report_participant (nlohmann::ordered_json &j) {
         w["last_seen"] = ts;
         participant_map[id] = w;
 
-        std::cout << ts << ": updating " << id <<std::endl;
+        // std::cout << ts << ": updating " << id <<std::endl;
     } else {
         // adding new entry
 
@@ -65,7 +65,7 @@ ParticipantStatus report_participant (nlohmann::ordered_json &j) {
         j["last_seen"] = ts;
         participant_map[id] = j;
 
-        std::cout << ts << ": adding " << id <<std::endl;
+        std::cout << ts << ": online " << id <<std::endl;
 
         status = PARTICIPANT_ADDED;
     }
@@ -73,6 +73,19 @@ ParticipantStatus report_participant (nlohmann::ordered_json &j) {
     return status;
 }
 
+/**
+ * @brief Check the participants for stale entries and remove them.
+ *
+ * This function iterates over the participant_map and checks the age
+ * of each participant based on the current timestamp obtained from
+ * the get_timestamp() function. If a participant's age is greater than
+ * 1000 milliseconds, it is considered stale and removed from the map.
+ * The details of the stale entry are printed to the console.
+ *
+ * @note This method assumes the existence of a participant_map, which is a
+ *       std::map<std::string, ordered_json> used to store participant details.
+ *
+ * @note This method assumes the existence of the*/
 void check_participants () {
     auto current_timestamp = get_timestamp();
 
@@ -83,11 +96,12 @@ void check_participants () {
 
         std::uint64_t age = current_timestamp - last_seen;
 
-        if (age > 2000) {
-            std::cout << current_timestamp << ": stale entry " << id << " (" << age << "ms ago)" << std::endl;
+        if (age > 1000) {
+            std::cout << current_timestamp << ": offline " << id << std::endl;
             it = participant_map.erase(it);
         } else {
             ++it;
         }
     }
 }
+
