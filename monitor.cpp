@@ -31,18 +31,15 @@ std::uint64_t get_timestamp () {
     return millis;
 }
 
-
 /**
- * @brief Reports a participant and updates the participant_map
+ * @brief Reports the participant to the monitoring system.
  *
- * This function is responsible for reporting a participant and updating the
- * participant_map. If the participant already exists in the map, its "last_seen"
- * timestamp will be updated. If the participant is new, it will be added to the map
- * with "first_seen" and "last_seen" timestamps set to the current timestamp.
+ * This function is used to report a participant to the monitoring system. It updates
+ * the participant's last seen timestamp and adds a new participant if it doesn't exist
+ * in the participant map. The function also prints debugging information to the console.
  *
- * @param j The JSON object representing the participant to be reported
- * @return The participant status indicating whether the participant already exists
- *         or was successfully added to the map
+ * @param j The JSON object representing the participant.
+ * @return The status of the participant after reporting (PARTICIPANT_EXISTS or PARTICIPANT_ADDED).
  */
 ParticipantStatus report_participant (nlohmann::ordered_json &j) {
     auto ts = get_timestamp();
@@ -57,13 +54,10 @@ ParticipantStatus report_participant (nlohmann::ordered_json &j) {
 
         // updating existing entry
 
-        // this needs to update the entry already in the map!
         w["last_seen"] = ts;
         participant_map[id] = w;
 
         std::cout << ts << ": updating " << id <<std::endl;
-        // std::cout << w.dump(4) << std::endl;
-
     } else {
         // adding new entry
 
@@ -72,12 +66,9 @@ ParticipantStatus report_participant (nlohmann::ordered_json &j) {
         participant_map[id] = j;
 
         std::cout << ts << ": adding " << id <<std::endl;
-        // std::cout << j.dump(4) << std::endl;
 
         status = PARTICIPANT_ADDED;
     }
-
-    // std::cout << participant_map[id].dump(4) << std::endl << std::endl;
 
     return status;
 }
