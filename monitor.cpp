@@ -135,8 +135,9 @@ int expire_participants () {
 
             print_timestamp (current_timestamp);
             std::cout  << ": " << id << " offline " << std::endl;
-            // send_update
 
+            send_update (address, 1, architecture);
+            
             it = participant_map.erase (it);
         } else {
             ++it;
