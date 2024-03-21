@@ -96,6 +96,6 @@ public:
 
 std::uint64_t get_timestamp ();
 ParticipantStatus report_participant (json &j);
-void check_participants();
+int expire_participants();
 
 #endif //HOSTMON_MONITOR_H

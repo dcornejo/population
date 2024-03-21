@@ -7,7 +7,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <chrono>
-
 #include <nlohmann/json.hpp>
 
 #include "config.h"
@@ -26,8 +25,8 @@ using json = nlohmann::json;
  */
 json create_advertisement () {
 
-    const auto sys_info = std::make_unique<system_info>();
-    auto address = get_interface_address();
+    const auto sys_info = std::make_unique<system_info> ();
+    auto address = get_interface_address ();
 
     json j = {};
 
@@ -42,13 +41,13 @@ json create_advertisement () {
     j["provides"] = {};
 
     auto p2 = configuration["provides"];
-    for (auto &element: p2.items()) {
-        auto val = element.value();
-        if (!(val.contains("service"))) {
+    for (auto &element: p2.items ()) {
+        auto val = element.value ();
+        if (!(val.contains ("service"))) {
             continue;
         }
         auto service = val["service"];
-        j["provides"].push_back(service);
+        j["provides"].push_back (service);
     }
 
     // participant information
@@ -68,28 +67,29 @@ json create_advertisement () {
  * @param group_ip The IP address of the multicast group to send the message to.
  * @param group_port The network port of the multicast group.
  */
-void transmit_thread(const char *group_ip, const unsigned short group_port) {
-    const int sock = new_multicast_socket(group_ip);
+void transmit_thread (const char *group_ip, const unsigned short group_port) {
+    const int sock = new_multicast_socket (group_ip);
 
-    json j = create_advertisement();
+    json j = create_advertisement ();
 
-    const std::string message = j.dump(4);
+    const std::string message = j.dump (4);
     std::cout << "*****\n" << message << "\n*****" << std::endl;
 
     sockaddr_in group_addr = {};
-    memset(&group_addr, 0, sizeof(group_addr));
+    memset (&group_addr, 0, sizeof (group_addr));
     group_addr.sin_family = AF_INET;
-    group_addr.sin_addr.s_addr = inet_addr(group_ip);
-    group_addr.sin_port = htons(group_port);
+    group_addr.sin_addr.s_addr = inet_addr (group_ip);
+    group_addr.sin_port = htons (group_port);
 
     while (true) {
-        if (sendto(sock, message.c_str(), message.size(), 0, reinterpret_cast<sockaddr *>(&group_addr),
-                   sizeof(group_addr)) < 0) {
-            perror("Sending datagram message error");
+        if (sendto (sock, message.c_str (), message.size (), 0,
+                    reinterpret_cast<sockaddr *>(&group_addr),
+                    sizeof (group_addr)) < 0) {
+            perror ("Sending datagram message error");
             break;
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        std::this_thread::sleep_for (std::chrono::milliseconds (500));
     }
 }
 
@@ -104,36 +104,36 @@ void transmit_thread(const char *group_ip, const unsigned short group_port) {
  * @param group_port The port number of the multicast group to join.
  * @throws std::runtime_error If any error occurs while creating or binding the socket.
  */
-void receive_thread(const char *group_ip, const unsigned short group_port) {
-    const int sock = new_multicast_socket(group_ip);
+void receive_thread (const char *group_ip, const unsigned short group_port) {
+    const int sock = new_multicast_socket (group_ip);
 
     sockaddr_in group_addr = {};
-    memset(&group_addr, 0, sizeof(group_addr));
+    memset (&group_addr, 0, sizeof (group_addr));
     group_addr.sin_family = AF_INET;
-    group_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    group_addr.sin_port = htons(group_port);
+    group_addr.sin_addr.s_addr = htonl (INADDR_ANY);
+    group_addr.sin_port = htons (group_port);
 
-    if (bind(sock, reinterpret_cast<sockaddr *>(&group_addr), sizeof(group_addr)) < 0) {
-        throw std::runtime_error("Binding datagram socket error");
+    if (bind (sock, reinterpret_cast<sockaddr *>(&group_addr), sizeof (group_addr)) < 0) {
+        throw std::runtime_error ("Binding datagram socket error");
     }
 
     char buffer[1024];
     sockaddr_in src_addr = {};
 
-    memset(&src_addr, 0, sizeof(src_addr));
+    memset (&src_addr, 0, sizeof (src_addr));
 
-    socklen_t src_addr_len = sizeof(src_addr);
+    socklen_t src_addr_len = sizeof (src_addr);
 
     while (true) {
-        if (const ssize_t received = recvfrom(sock, buffer, sizeof(buffer), 0,
-                                              reinterpret_cast<struct sockaddr *>(&src_addr),
-                                              &src_addr_len); received < 0) {
-            perror("Receiving datagram message error");
+        if (const ssize_t received = recvfrom (sock, buffer, sizeof (buffer), 0,
+                                               reinterpret_cast<struct sockaddr *>(&src_addr),
+                                               &src_addr_len); received < 0) {
+            perror ("Receiving datagram message error");
             break;
         } else {
             buffer[received] = '\0';
-            auto x = json::parse(buffer);
-            report_participant(x);
+            auto x = json::parse (buffer);
+            report_participant (x);
         }
     }
 }
@@ -149,15 +149,13 @@ void receive_thread(const char *group_ip, const unsigned short group_port) {
  * @param None.
  * @return None.
  */
-
-constexpr std::int64_t EXPIRY_MS = 1000;
-
-void expire_thread() {
+void expire_thread () {
     while (true) {
-        // auto now = get_timestamp();
-        check_participants();
+        if (expire_participants () != 0) {
+            break;
+        }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        std::this_thread::sleep_for (std::chrono::milliseconds (250));
     }
 }
 
@@ -165,20 +163,19 @@ void expire_thread() {
  * @file main.cpp
  * @brief This file contains the main function which creates and joins threads for transmitting, receiving, and expiration.
  */
-int main() {
-    load_configuration();
-    //std::cout << "configuration file:\n" << configuration.dump(2) << "\n" << std::endl;
+int main () {
+    load_configuration ();
 
     std::string id = configuration["id"];
     std::cout << "using ID: " << id << "\n" << std::endl;
 
-    std::thread multicastSender(transmit_thread, "224.1.1.1", 50000);
-    std::thread multicastReceiver(receive_thread, "224.1.1.1", 50000);
-    std::thread expiryScanner(expire_thread);
+    std::thread multicastSender (transmit_thread, "224.1.1.1", 50000);
+    std::thread multicastReceiver (receive_thread, "224.1.1.1", 50000);
+    std::thread expiryScanner (expire_thread);
 
-    multicastSender.join();
-    multicastReceiver.join();
-    expiryScanner.join();
+    multicastSender.join ();
+    multicastReceiver.join ();
+    expiryScanner.join ();
 
     return 0;
 }

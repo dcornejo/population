@@ -11,5 +11,7 @@ add_executable(hostmon main.cpp
         utilities.cpp
         utilities.h
         config.cpp
-        config.h)
+        config.h
+        comms.cpp
+        comms.h)
 target_link_libraries(hostmon pthread)
