@@ -70,7 +70,9 @@ ParticipantStatus report_participant (json &j) {
     auto ts = get_timestamp ();
     auto status = PARTICIPANT_EXISTS;
 
-    const std::string id = j["id"];
+    const std::string id = j["id"].get<std::string> ();
+    const std::string address = j["address"].get<std::string> ();
+    const std::string architecture = j["architecture"].get<std::string> ();
 
     std::lock_guard lock (participant_mutex);
 
@@ -91,8 +93,8 @@ ParticipantStatus report_participant (json &j) {
 
         print_timestamp (ts);
         std::cout << ": " << id << " online " << std::endl;
-        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX create & send update message.
-        //send_update();
+
+        send_update (address, 1, architecture);
 
         status = PARTICIPANT_ADDED;
     }
@@ -127,11 +129,12 @@ int expire_participants () {
 
         if (const std::uint64_t age = current_timestamp - last_seen; age > 600) {
 
-            std::string id = p["id"].get<std::string>();
-            std::string address = p["address"].get<std::string>();
-            std::string architecture = p["architecture"].get<std::string>();
+            std::string id = p["id"].get<std::string> ();
+            std::string address = p["address"].get<std::string> ();
+            std::string architecture = p["architecture"].get<std::string> ();
 
-            std::cout << current_timestamp << ": " << id << " offline " << std::endl;
+            print_timestamp (current_timestamp);
+            std::cout  << ": " << id << " offline " << std::endl;
             // send_update
 
             it = participant_map.erase (it);
