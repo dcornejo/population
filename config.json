@@ -1,18 +1,25 @@
 {
-  "id": "hostname",
-  "address": "x.x.x.x:p",
-  "capabilities": {
-    "propulsion": {
-      "server": true,
-      "client": false
+  "id": "red_hill",
+  "provides": [
+    {
+      "service": "email",
+      "role": "server",
+      "priority": 1,
+      "command": [
+        "/usr/bin/msmptd",
+        "--option",
+        "--another-option"
+      ]
     },
-    "email": {
-      "server": true,
-      "client": false
-    },
-    "surveillance": {
-      "server": true,
-      "client": false
+    {
+      "service": "propulsion",
+      "role": "server",
+      "priority": 2,
+      "command": [
+        "/usr/bin/propulsion",
+        "--option",
+        "--another-option"
+      ]
     }
-  }
+  ]
 }

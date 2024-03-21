@@ -9,5 +9,7 @@ add_executable(hostmon main.cpp
         monitor.cpp
         monitor.h
         utilities.cpp
-        utilities.h)
+        utilities.h
+        config.cpp
+        config.h)
 target_link_libraries(hostmon pthread)
